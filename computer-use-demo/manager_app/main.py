@@ -1,31 +1,34 @@
 import uuid
 import docker
 import asyncio
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends
+import json
+import tarfile
+import io
+import traceback
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPException
+from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from pydantic import BaseModel
 import anthropic
 
-from fastapi.responses import FileResponse
 from manager_app.database import init_db, AsyncSessionLocal, SessionModel, MessageModel
 
 app = FastAPI(title="Computer Use API")
 docker_client = docker.from_env()
 client = anthropic.AsyncAnthropic()
 
+@app.on_event("startup")
+async def startup():
+    await init_db()
+
 @app.get("/")
 async def serve_frontend():
-    # The Docker container's WORKDIR is /app, so this path is relative to that
     return FileResponse("frontend/index.html")
 
 async def get_db():
     async with AsyncSessionLocal() as session:
         yield session
-
-@app.on_event("startup")
-async def startup():
-    await init_db()
 
 class SessionCreateResponse(BaseModel):
     session_id: str
@@ -33,37 +36,50 @@ class SessionCreateResponse(BaseModel):
 
 @app.post("/sessions", response_model=SessionCreateResponse)
 async def create_session(db: AsyncSession = Depends(get_db)):
-    session_id = str(uuid.uuid4())
-    
-    # 1. Provision an isolated sandbox container for this specific session
-    # We bind the container's 6080 (noVNC) to an ephemeral port on the host
-    container = docker_client.containers.run(
-        "anthropic-sandbox:latest",
-        detach=True,
-        ports={'6080/tcp': None},
-        environment={"WIDTH": "1024", "HEIGHT": "768"}
-    )
-    
-    # Reload to get the dynamically assigned host port for VNC
-    container.reload()
-    vnc_port = int(container.ports['6080/tcp'][0]['HostPort'])
-    
-    # 2. Persist to DB
-    new_session = SessionModel(
-        id=session_id, 
-        container_id=container.id, 
-        vnc_port=vnc_port
-    )
-    db.add(new_session)
-    await db.commit()
-    
-    return {"session_id": session_id, "vnc_port": vnc_port}
+    try:
+        session_id = str(uuid.uuid4())
+        
+        # Eliminate race conditions by letting Docker assign random free ports
+        container = await asyncio.to_thread(
+            docker_client.containers.run,
+            "computer-use-demo:local",
+            detach=True,
+            ports={
+                '6080/tcp': None,
+                '5900/tcp': None,
+                '8501/tcp': None,
+                '8080/tcp': None
+            },
+            environment={"WIDTH": "1024", "HEIGHT": "768"}
+        )
+        
+        await asyncio.sleep(2) 
+        await asyncio.to_thread(container.reload)
+        
+        if container.status != "running":
+            error_logs = await asyncio.to_thread(container.logs)
+            await asyncio.to_thread(container.remove, force=True)
+            raise Exception(f"Container crashed. Logs: {error_logs.decode('utf-8')}")
+            
+        vnc_port = int(container.ports['6080/tcp'][0]['HostPort'])
+            
+        new_session = SessionModel(
+            id=session_id, 
+            container_id=container.id, 
+            vnc_port=vnc_port
+        )
+        db.add(new_session)
+        await db.commit()
+        
+        return SessionCreateResponse(session_id=session_id, vnc_port=vnc_port)
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.websocket("/sessions/{session_id}/stream")
 async def websocket_endpoint(websocket: WebSocket, session_id: str):
     await websocket.accept()
     
-    # Verify session
     async with AsyncSessionLocal() as db:
         result = await db.execute(select(SessionModel).filter(SessionModel.id == session_id))
         session_data = result.scalars().first()
@@ -73,61 +89,154 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
 
     try:
         while True:
-            # Receive user command
             data = await websocket.receive_json()
             user_msg = data.get("prompt")
             
-            # Save user msg to DB
+            content_list = [{"type": "text", "text": user_msg}]
             async with AsyncSessionLocal() as db:
-                db.add(MessageModel(session_id=session_id, role="user", content=user_msg))
+                db.add(MessageModel(session_id=session_id, role="user", content=json.dumps(content_list)))
                 await db.commit()
             
-            # Stream initial thought
             await websocket.send_json({"type": "progress", "content": "Thinking..."})
-            
-            # Execute Agent Loop (Simplified for demonstration)
-            # In production, this integrates Anthropic's beta tools and routes the actual tool 
-            # execution into the specific `session_data.container_id` via docker exec or HTTP.
             await run_agent_loop(websocket, session_id, session_data.container_id, user_msg)
             
     except WebSocketDisconnect:
-        print(f"Client disconnected from session {session_id}")
+        pass
+
+def _exec_tool_in_container(container_id: str, tool_name: str, tool_input: dict):
+    container = docker_client.containers.get(container_id)
+    
+    if tool_name == "bash":
+        module, cls = "bash", "BashTool20250124"
+    elif tool_name == "computer":
+        module, cls = "computer", "ComputerTool20241022"
+    elif tool_name == "str_replace_editor":
+        module, cls = "edit", "EditTool20250728"
+    else:
+        raise ValueError(f"Unknown tool {tool_name}")
+
+    # Inject execution script dynamically to bypass bash escaping constraints
+    script = f"""
+import asyncio
+import json
+import base64
+from computer_use_demo.tools.{module} import {cls}
+
+async def main():
+    tool = {cls}()
+    try:
+        res = await tool(**{json.dumps(tool_input)})
+        print(json.dumps({{
+            "output": getattr(res, "output", None), 
+            "error": getattr(res, "error", None), 
+            "base64_image": getattr(res, "base64_image", None)
+        }}))
+    except Exception as e:
+        print(json.dumps({{"error": str(e)}}))
+
+asyncio.run(main())
+"""
+    tar_stream = io.BytesIO()
+    with tarfile.open(fileobj=tar_stream, mode='w') as tar:
+        script_bytes = script.encode('utf-8')
+        tarinfo = tarfile.TarInfo(name='run_tool.py')
+        tarinfo.size = len(script_bytes)
+        tar.addfile(tarinfo, io.BytesIO(script_bytes))
+    tar_stream.seek(0)
+    
+    container.put_archive('/tmp/', tar_stream)
+    return container.exec_run(["python", "/tmp/run_tool.py"])
 
 async def run_agent_loop(websocket: WebSocket, session_id: str, container_id: str, prompt: str):
-    """
-    Executes the LLM ReAct loop. Tool calls are routed into the isolated Docker container.
-    """
     system_prompt = "You are a computer use agent. You have access to a sandboxed Ubuntu environment."
-    messages = [{"role": "user", "content": prompt}]
     
-    # Example Anthropic Beta API call
-    response = await client.beta.messages.create(
-        model="claude-3-5-sonnet-20241022",
-        max_tokens=1024,
-        system=system_prompt,
-        messages=messages,
-        # tools=[... computer, bash, edit tools ...]
-    )
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(select(MessageModel).filter(MessageModel.session_id == session_id).order_by(MessageModel.id))
+        past_messages = result.scalars().all()
+        
+    messages = [{"role": msg.role, "content": json.loads(msg.content)} for msg in past_messages]
 
-    # Stream agent actions back to UI
-    for content_block in response.content:
-        if content_block.type == "text":
-            await websocket.send_json({"type": "message", "role": "assistant", "content": content_block.text})
-            
-            # Persist assistant message
+    try:
+        while True:
+            response = await client.beta.messages.create(
+                model="claude-3-5-sonnet-20241022",
+                max_tokens=1024,
+                betas=["computer-use-2024-10-22"], 
+                system=system_prompt,
+                messages=messages,
+                tools=[
+                    {"type": "computer_20241022", "name": "computer", "display_width_px": 1024, "display_height_px": 768, "display_number": 1},
+                    {"type": "bash_20250124", "name": "bash"},
+                    {"type": "text_editor_20250728", "name": "str_replace_editor"}
+                ]
+            )
+
+            assistant_content = response.content
+            assistant_content_dicts = [b.model_dump() for b in assistant_content]
+            messages.append({"role": "assistant", "content": assistant_content_dicts})
+
             async with AsyncSessionLocal() as db:
-                db.add(MessageModel(session_id=session_id, role="assistant", content=content_block.text))
+                db.add(MessageModel(session_id=session_id, role="assistant", content=json.dumps(assistant_content_dicts)))
                 await db.commit()
-                
-        elif content_block.type == "tool_use":
-            await websocket.send_json({"type": "tool_call", "name": content_block.name, "input": content_block.input})
-            
-            # Execute tool INSIDE the specific container using Docker SDK to guarantee isolation
-            container = docker_client.containers.get(container_id)
-            if content_block.name == "bash":
-                cmd = content_block.input["command"]
-                exit_code, output = container.exec_run(["/bin/bash", "-c", cmd])
-                await websocket.send_json({"type": "tool_result", "content": output.decode('utf-8')})
-            
-            # (Implement computer and edit tools similarly by executing their underlying python scripts 
-            # inside the container via container.exec_run())
+
+            tool_results = []
+            has_tool_use = False
+
+            for content_block in assistant_content:
+                if content_block.type == "text":
+                    await websocket.send_json({"type": "message", "role": "assistant", "content": content_block.text})
+                        
+                elif content_block.type == "tool_use":
+                    has_tool_use = True
+                    tool_name = content_block.name
+                    tool_input = content_block.input
+                    tool_id = content_block.id
+                    
+                    await websocket.send_json({"type": "tool_call", "name": tool_name, "input": tool_input})
+                    
+                    exit_code, output = await asyncio.to_thread(_exec_tool_in_container, container_id, tool_name, tool_input)
+                    
+                    try:
+                        if exit_code != 0:
+                            raise ValueError(output.decode('utf-8'))
+                            
+                        result_dict = json.loads(output.decode('utf-8').strip())
+                        tool_res_content = []
+                        
+                        if result_dict.get('output'):
+                            tool_res_content.append({"type": "text", "text": result_dict['output']})
+                        if result_dict.get('error'):
+                            tool_res_content.append({"type": "text", "text": f"Error: {result_dict['error']}"})
+                        if result_dict.get('base64_image'):
+                            tool_res_content.append({
+                                "type": "image", 
+                                "source": {"type": "base64", "media_type": "image/png", "data": result_dict['base64_image']}
+                            })
+                            await websocket.send_json({"type": "tool_result", "content": "Screenshot captured."})
+                        else:
+                            await websocket.send_json({"type": "tool_result", "content": result_dict.get('output') or "Completed."})
+                            
+                        if not tool_res_content:
+                            tool_res_content.append({"type": "text", "text": "Command executed successfully with no output."})
+                            
+                        tool_results.append({
+                            "type": "tool_result",
+                            "tool_use_id": tool_id,
+                            "content": tool_res_content
+                        })
+
+                    except Exception as parse_err:
+                        err_str = output.decode('utf-8') if output else str(parse_err)
+                        await websocket.send_json({"type": "tool_result", "content": f"Failed execution: {err_str}"})
+                        tool_results.append({"type": "tool_result", "tool_use_id": tool_id, "content": [{"type": "text", "text": err_str}]})
+
+            if has_tool_use:
+                messages.append({"role": "user", "content": tool_results})
+                async with AsyncSessionLocal() as db:
+                    db.add(MessageModel(session_id=session_id, role="user", content=json.dumps(tool_results)))
+                    await db.commit()
+            else:
+                break
+
+    except Exception as e:
+        await websocket.send_json({"type": "progress", "content": f"API Error: {str(e)}"})

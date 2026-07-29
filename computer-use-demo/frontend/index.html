@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <title>Legent AI - Computer Use Agent</title>
@@ -32,12 +33,14 @@
             position: relative;
             margin-bottom: 20px;
         }
+
         .header h1 {
             margin: 0;
             font-size: 24px;
             color: #4a6582;
             font-weight: 700;
         }
+
         .header-logo {
             position: absolute;
             left: 0;
@@ -74,6 +77,7 @@
             flex-direction: column;
             gap: 15px;
         }
+
         .search-box {
             display: flex;
             align-items: center;
@@ -81,6 +85,7 @@
             border-radius: 8px;
             padding: 2px;
         }
+
         .search-box input {
             border: none;
             padding: 10px;
@@ -88,23 +93,26 @@
             outline: none;
             flex: 1;
         }
+
         .search-icon {
             color: white;
             padding: 0 10px;
             font-weight: bold;
         }
-        
+
         .task-history {
             flex: 1;
             padding: 15px;
             overflow-y: auto;
         }
+
         .task-history h3 {
             margin: 0 0 15px 0;
             font-size: 14px;
             color: var(--text-main);
             text-align: center;
         }
+
         .history-item {
             font-size: 13px;
             color: var(--text-muted);
@@ -114,7 +122,10 @@
             gap: 8px;
             cursor: pointer;
         }
-        .history-item:hover { color: var(--primary); }
+
+        .history-item:hover {
+            color: var(--primary);
+        }
 
         .new-task-btn {
             background-color: var(--primary);
@@ -131,18 +142,23 @@
             gap: 8px;
             transition: opacity 0.2s;
         }
-        .new-task-btn:hover { opacity: 0.9; }
+
+        .new-task-btn:hover {
+            opacity: 0.9;
+        }
 
         .middle-col {
             flex: 1;
             padding: 15px;
         }
+
         .vnc-header {
             display: flex;
             justify-content: flex-end;
             gap: 10px;
             margin-bottom: 15px;
         }
+
         .vnc-header button {
             background-color: var(--primary);
             color: white;
@@ -155,14 +171,16 @@
             align-items: center;
             gap: 5px;
         }
+
         .vnc-container {
             flex: 1;
             background: #1e3a5f;
             border-radius: 8px;
             overflow: hidden;
-            box-shadow: inset 0 0 20px rgba(0,0,0,0.5);
+            box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.5);
             display: flex;
         }
+
         iframe {
             width: 100%;
             height: 100%;
@@ -175,10 +193,11 @@
             flex-direction: column;
             gap: 20px;
         }
-        
+
         .chat-panel {
             flex: 2;
         }
+
         .chat-history {
             flex: 1;
             padding: 15px;
@@ -187,12 +206,14 @@
             flex-direction: column;
             gap: 12px;
         }
+
         .chat-input-area {
             border-top: 1px solid var(--border);
             padding: 15px;
             display: flex;
             align-items: center;
         }
+
         .chat-input-area input {
             flex: 1;
             border: none;
@@ -200,6 +221,7 @@
             font-size: 14px;
             color: var(--text-main);
         }
+
         .chat-input-area button {
             background: none;
             border: none;
@@ -216,12 +238,14 @@
             max-width: 85%;
             word-wrap: break-word;
         }
+
         .msg.user {
             background: var(--primary);
             color: white;
             align-self: flex-end;
             border-bottom-right-radius: 4px;
         }
+
         .msg.agent {
             background: #f1f5fa;
             color: var(--text-main);
@@ -230,6 +254,7 @@
             display: flex;
             gap: 8px;
         }
+
         .msg.tool {
             background: #fff8e1;
             color: #8f6d00;
@@ -252,6 +277,7 @@
             padding: 20px;
             cursor: pointer;
         }
+
         .file-panel svg {
             width: 48px;
             height: 48px;
@@ -260,6 +286,7 @@
         }
     </style>
 </head>
+
 <body>
 
     <div class="header">
@@ -268,13 +295,13 @@
     </div>
 
     <div class="layout">
-        
+
         <div class="left-col">
             <div class="search-box">
                 <span class="search-icon">🔍</span>
                 <input type="text" placeholder="Search">
             </div>
-            
+
             <div class="panel task-history">
                 <h3>Task History</h3>
                 <div class="history-item">📁 Library</div>
@@ -308,13 +335,17 @@
                     </div>
                 </div>
                 <div class="chat-input-area">
-                    <input type="text" id="promptBox" placeholder="Write a message" disabled onkeypress="handleKeyPress(event)">
+                    <input type="text" id="promptBox" placeholder="Write a message" disabled
+                        onkeypress="handleKeyPress(event)">
                     <button id="sendBtn" onclick="sendMessage()" disabled>➤</button>
                 </div>
             </div>
 
             <div class="panel file-panel">
-                <svg viewBox="0 0 24 24"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM14 13v4h-4v-4H7l5-5 5 5h-3z"/></svg>
+                <svg viewBox="0 0 24 24">
+                    <path
+                        d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM14 13v4h-4v-4H7l5-5 5 5h-3z" />
+                </svg>
                 <div style="font-size: 13px;">Drag and drop a single file here or click to select a file</div>
             </div>
         </div>
@@ -329,31 +360,31 @@
             const btn = document.querySelector('.new-task-btn');
             btn.disabled = true;
             btn.innerHTML = "Initializing...";
-
             try {
                 const res = await fetch('/sessions', { method: 'POST' });
                 const data = await res.json();
                 sessionId = data.session_id;
-                
-                document.getElementById('vnc-frame').src = `http://localhost:${data.vnc_port}/vnc.html`;
-                
+
+                // Construct the correct noVNC URL for visual execution 
+                document.getElementById('vnc-frame').src = `http://localhost:${data.vnc_port}/vnc.html?autoconnect=1&resize=scale`;
+
                 connectWebSocket();
                 document.getElementById('promptBox').disabled = false;
                 document.getElementById('sendBtn').disabled = false;
-                
-                btn.innerHTML = "<span>⊕</span> New Agent Task";
+
+                btn.innerHTML = "<span> </span> New Agent Task";
                 btn.disabled = false;
             } catch (err) {
                 appendMsg("System", "Failed to connect to backend.", "tool");
-                btn.innerHTML = "<span>⊕</span> New Agent Task";
+                btn.innerHTML = "<span> </span> New Agent Task";
                 btn.disabled = false;
             }
         }
 
         function connectWebSocket() {
             ws = new WebSocket(`ws://${location.host}/sessions/${sessionId}/stream`);
-            
-            ws.onmessage = function(event) {
+
+            ws.onmessage = function (event) {
                 const msg = JSON.parse(event.data);
                 if (msg.type === 'message') {
                     appendMsg("Agent", msg.content, "agent");
@@ -376,8 +407,8 @@
         function sendMessage() {
             const promptBox = document.getElementById('promptBox');
             const text = promptBox.value;
-            if(!text || !ws) return;
-            
+            if (!text || !ws) return;
+
             appendMsg("You", text, "user");
             ws.send(JSON.stringify({ prompt: text }));
             promptBox.value = '';
@@ -387,7 +418,7 @@
             const chatHistory = document.getElementById('chat-history');
             const div = document.createElement('div');
             div.className = `msg ${cssClass}`;
-            
+
             if (cssClass === 'agent') {
                 div.innerHTML = `<span>🤖</span> <div>${text}</div>`;
             } else {
@@ -400,4 +431,5 @@
     </script>
 
 </body>
+
 </html>
