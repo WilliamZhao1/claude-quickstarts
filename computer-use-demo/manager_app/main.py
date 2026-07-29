@@ -7,8 +7,6 @@ from sqlalchemy.future import select
 from pydantic import BaseModel
 import anthropic
 
-from database import init_db, AsyncSessionLocal, SessionModel, MessageModel
-
 from fastapi.responses import FileResponse
 from manager_app.database import init_db, AsyncSessionLocal, SessionModel, MessageModel
 
