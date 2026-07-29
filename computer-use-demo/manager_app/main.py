@@ -39,11 +39,11 @@ async def create_session(db: AsyncSession = Depends(get_db)):
     try:
         session_id = str(uuid.uuid4())
         
-        # Eliminate race conditions by letting Docker assign random free ports
         container = await asyncio.to_thread(
             docker_client.containers.run,
             "computer-use-demo:local",
             detach=True,
+            shm_size="2g",
             ports={
                 '6080/tcp': None,
                 '5900/tcp': None,
@@ -53,7 +53,7 @@ async def create_session(db: AsyncSession = Depends(get_db)):
             environment={"WIDTH": "1024", "HEIGHT": "768"}
         )
         
-        await asyncio.sleep(2) 
+        await asyncio.sleep(3) 
         await asyncio.to_thread(container.reload)
         
         if container.status != "running":
@@ -61,7 +61,15 @@ async def create_session(db: AsyncSession = Depends(get_db)):
             await asyncio.to_thread(container.remove, force=True)
             raise Exception(f"Container crashed. Logs: {error_logs.decode('utf-8')}")
             
-        vnc_port = int(container.ports['6080/tcp'][0]['HostPort'])
+        # Safely extract port binding from container attributes
+        network_settings = container.attrs.get('NetworkSettings', {})
+        ports_dict = network_settings.get('Ports', {})
+        vnc_bindings = ports_dict.get('6080/tcp')
+        
+        if not vnc_bindings or not vnc_bindings[0].get('HostPort'):
+            raise Exception("Failed to retrieve host port mapping for noVNC (6080/tcp).")
+            
+        vnc_port = int(vnc_bindings[0]['HostPort'])
             
         new_session = SessionModel(
             id=session_id, 
@@ -109,14 +117,17 @@ def _exec_tool_in_container(container_id: str, tool_name: str, tool_input: dict)
     if tool_name == "bash":
         module, cls = "bash", "BashTool20250124"
     elif tool_name == "computer":
-        module, cls = "computer", "ComputerTool20241022"
-    elif tool_name == "str_replace_editor":
+        module, cls = "computer", "ComputerTool20251124"
+    elif tool_name == "str_replace_based_edit_tool":
         module, cls = "edit", "EditTool20250728"
     else:
         raise ValueError(f"Unknown tool {tool_name}")
 
-    # Inject execution script dynamically to bypass bash escaping constraints
+    # Explicitly inject /home/computeruse into sys.path so the module can be found
     script = f"""
+import sys
+sys.path.insert(0, '/home/computeruse')
+
 import asyncio
 import json
 import base64
@@ -145,7 +156,12 @@ asyncio.run(main())
     tar_stream.seek(0)
     
     container.put_archive('/tmp/', tar_stream)
-    return container.exec_run(["python", "/tmp/run_tool.py"])
+    
+    return container.exec_run(
+        cmd=["python", "/tmp/run_tool.py"],
+        user="computeruse",
+        workdir="/home/computeruse"
+    )
 
 async def run_agent_loop(websocket: WebSocket, session_id: str, container_id: str, prompt: str):
     system_prompt = "You are a computer use agent. You have access to a sandboxed Ubuntu environment."
@@ -159,15 +175,15 @@ async def run_agent_loop(websocket: WebSocket, session_id: str, container_id: st
     try:
         while True:
             response = await client.beta.messages.create(
-                model="claude-3-5-sonnet-20241022",
+                model="claude-opus-4-8",
                 max_tokens=1024,
-                betas=["computer-use-2024-10-22"], 
+                betas=["computer-use-2025-11-24"], 
                 system=system_prompt,
                 messages=messages,
                 tools=[
-                    {"type": "computer_20241022", "name": "computer", "display_width_px": 1024, "display_height_px": 768, "display_number": 1},
+                    {"type": "computer_20251124", "name": "computer", "display_width_px": 1024, "display_height_px": 768, "display_number": 1},
                     {"type": "bash_20250124", "name": "bash"},
-                    {"type": "text_editor_20250728", "name": "str_replace_editor"}
+                    {"type": "text_editor_20250728", "name": "str_replace_based_edit_tool"}
                 ]
             )
 

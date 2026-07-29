@@ -24,6 +24,7 @@
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
             background-color: var(--app-bg);
             color: var(--text-main);
+            overflow: hidden;
         }
 
         .header {
@@ -60,6 +61,7 @@
             flex: 1;
             gap: 20px;
             overflow: hidden;
+            min-height: 0;
         }
 
         .panel {
@@ -76,28 +78,6 @@
             display: flex;
             flex-direction: column;
             gap: 15px;
-        }
-
-        .search-box {
-            display: flex;
-            align-items: center;
-            background: var(--primary);
-            border-radius: 8px;
-            padding: 2px;
-        }
-
-        .search-box input {
-            border: none;
-            padding: 10px;
-            border-radius: 0 6px 6px 0;
-            outline: none;
-            flex: 1;
-        }
-
-        .search-icon {
-            color: white;
-            padding: 0 10px;
-            font-weight: bold;
         }
 
         .task-history {
@@ -150,6 +130,9 @@
         .middle-col {
             flex: 1;
             padding: 15px;
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
         }
 
         .vnc-header {
@@ -179,6 +162,7 @@
             overflow: hidden;
             box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.5);
             display: flex;
+            min-height: 0;
         }
 
         iframe {
@@ -188,20 +172,23 @@
         }
 
         .right-col {
-            width: 320px;
+            width: 340px;
             display: flex;
             flex-direction: column;
-            gap: 20px;
+            overflow: hidden;
         }
 
         .chat-panel {
-            flex: 2;
+            flex: 1;
+            min-height: 0;
+            overflow: hidden;
         }
 
         .chat-history {
             flex: 1;
             padding: 15px;
             overflow-y: auto;
+            min-height: 0;
             display: flex;
             flex-direction: column;
             gap: 12px;
@@ -212,6 +199,8 @@
             padding: 15px;
             display: flex;
             align-items: center;
+            background: var(--bg);
+            flex-shrink: 0;
         }
 
         .chat-input-area input {
@@ -263,27 +252,6 @@
             font-size: 12px;
             border: 1px solid #ffe082;
         }
-
-        .file-panel {
-            flex: 1;
-            border: 2px dashed var(--border);
-            background: #f8fbff;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            color: var(--text-muted);
-            text-align: center;
-            padding: 20px;
-            cursor: pointer;
-        }
-
-        .file-panel svg {
-            width: 48px;
-            height: 48px;
-            fill: var(--primary);
-            margin-bottom: 10px;
-        }
     </style>
 </head>
 
@@ -297,18 +265,8 @@
     <div class="layout">
 
         <div class="left-col">
-            <div class="search-box">
-                <span class="search-icon">🔍</span>
-                <input type="text" placeholder="Search">
-            </div>
-
             <div class="panel task-history">
                 <h3>Task History</h3>
-                <div class="history-item">📁 Library</div>
-                <div class="history-item">💬 Audio Transcription R...</div>
-                <div class="history-item">💬 Free Zone Tax: Crucial...</div>
-                <div class="history-item">💬 BSEE API Well Numbe...</div>
-                <div class="history-item">📔 Prompt Gallery</div>
             </div>
 
             <button class="new-task-btn" onclick="startSession()">
@@ -318,8 +276,9 @@
 
         <div class="panel middle-col">
             <div class="vnc-header">
-                <button>🎤 Record</button>
-                <button>⏸ Stop</button>
+                <button onclick="document.getElementById('vnc-frame').src = document.getElementById('vnc-frame').src">
+                    <span>🔄</span> Refresh Screen
+                </button>
             </div>
             <div class="vnc-container">
                 <iframe id="vnc-frame" src=""></iframe>
@@ -340,14 +299,6 @@
                     <button id="sendBtn" onclick="sendMessage()" disabled>➤</button>
                 </div>
             </div>
-
-            <div class="panel file-panel">
-                <svg viewBox="0 0 24 24">
-                    <path
-                        d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM14 13v4h-4v-4H7l5-5 5 5h-3z" />
-                </svg>
-                <div style="font-size: 13px;">Drag and drop a single file here or click to select a file</div>
-            </div>
         </div>
 
     </div>
@@ -363,10 +314,16 @@
             try {
                 const res = await fetch('/sessions', { method: 'POST' });
                 const data = await res.json();
+
+                if (!data.session_id || !data.vnc_port) {
+                    throw new Error("Invalid session response from server.");
+                }
+
                 sessionId = data.session_id;
 
-                // Construct the correct noVNC URL for visual execution 
-                document.getElementById('vnc-frame').src = `http://localhost:${data.vnc_port}/vnc.html?autoconnect=1&resize=scale`;
+                setTimeout(() => {
+                    document.getElementById('vnc-frame').src = `http://localhost:${data.vnc_port}/vnc.html?autoconnect=1&resize=scale`;
+                }, 3000);
 
                 connectWebSocket();
                 document.getElementById('promptBox').disabled = false;
@@ -375,7 +332,7 @@
                 btn.innerHTML = "<span> </span> New Agent Task";
                 btn.disabled = false;
             } catch (err) {
-                appendMsg("System", "Failed to connect to backend.", "tool");
+                appendMsg("System", "Failed to connect to backend: " + err.message, "tool");
                 btn.innerHTML = "<span> </span> New Agent Task";
                 btn.disabled = false;
             }
