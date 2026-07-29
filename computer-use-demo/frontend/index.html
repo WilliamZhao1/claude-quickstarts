@@ -96,15 +96,22 @@
         .history-item {
             font-size: 13px;
             color: var(--text-muted);
-            padding: 8px 0;
-            display: flex;
-            align-items: center;
-            gap: 8px;
+            padding: 10px;
+            border-radius: 6px;
             cursor: pointer;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
         .history-item:hover {
+            background-color: #f1f5fa;
             color: var(--primary);
+        }
+
+        .history-item.active {
+            background-color: var(--primary);
+            color: white;
         }
 
         .new-task-btn {
@@ -259,13 +266,13 @@
 
     <div class="header">
         <div class="header-logo">S</div>
-        <h1>Legent AI</h1>
+        <h1>Computer Use Demo</h1>
     </div>
 
     <div class="layout">
 
         <div class="left-col">
-            <div class="panel task-history">
+            <div class="panel task-history" id="task-history-list">
                 <h3>Task History</h3>
             </div>
 
@@ -276,7 +283,8 @@
 
         <div class="panel middle-col">
             <div class="vnc-header">
-                <button onclick="document.getElementById('vnc-frame').src = document.getElementById('vnc-frame').src">
+                <button
+                    onclick="if(sessionId) { document.getElementById('vnc-frame').src = document.getElementById('vnc-frame').src; }">
                     <span>🔄</span> Refresh Screen
                 </button>
             </div>
@@ -307,6 +315,69 @@
         let ws;
         let sessionId;
 
+        async function loadTaskHistory(activeId = null) {
+            try {
+                const res = await fetch('/sessions');
+                const sessions = await res.json();
+                const container = document.getElementById('task-history-list');
+                container.innerHTML = '<h3>Task History</h3>';
+
+                sessions.forEach((s, index) => {
+                    const item = document.createElement('div');
+                    item.className = `history-item ${s.session_id === activeId ? 'active' : ''}`;
+                    item.textContent = `Session ${index + 1} (${s.created_at.substring(11, 16)})`;
+                    item.onclick = () => switchSession(s.session_id, s.vnc_port);
+                    container.appendChild(item);
+                });
+            } catch (err) {
+                console.error("Failed to load task history", err);
+            }
+        }
+
+        async function switchSession(id, vncPort) {
+            if (ws) ws.close();
+            sessionId = id;
+
+            // Update VNC Frame instantly
+            document.getElementById('vnc-frame').src = `http://localhost:${vncPort}/vnc.html?autoconnect=1&resize=scale`;
+
+            // Load messages
+            const chatHistory = document.getElementById('chat-history');
+            chatHistory.innerHTML = '';
+
+            try {
+                const res = await fetch(`/sessions/${sessionId}/messages`);
+                const messages = await res.json();
+
+                if (messages.length === 0) {
+                    appendMsg("Agent", "Hi! Let me know what task to accomplish", "agent");
+                } else {
+                    messages.forEach(m => {
+                        if (m.role === 'user') {
+                            const text = Array.isArray(m.content) ? m.content.find(c => c.type === 'text')?.text || "Task prompt" : m.content;
+                            appendMsg("You", text, "user");
+                        } else if (m.role === 'assistant') {
+                            if (typeof m.content === 'string') {
+                                appendMsg("Agent", m.content, "agent");
+                            } else if (Array.isArray(m.content)) {
+                                m.content.forEach(b => {
+                                    if (b.type === 'text') appendMsg("Agent", b.text, "agent");
+                                    else if (b.type === 'tool_use') appendMsg("Action", `Executing: ${b.name}`, "tool");
+                                });
+                            }
+                        }
+                    });
+                }
+            } catch (err) {
+                console.error("Failed to load messages", err);
+            }
+
+            connectWebSocket();
+            document.getElementById('promptBox').disabled = false;
+            document.getElementById('sendBtn').disabled = false;
+            loadTaskHistory(sessionId);
+        }
+
         async function startSession() {
             const btn = document.querySelector('.new-task-btn');
             btn.disabled = true;
@@ -319,26 +390,20 @@
                     throw new Error("Invalid session response from server.");
                 }
 
-                sessionId = data.session_id;
+                // Switch immediately because backend already verified port readiness
+                await switchSession(data.session_id, data.vnc_port);
 
-                setTimeout(() => {
-                    document.getElementById('vnc-frame').src = `http://localhost:${data.vnc_port}/vnc.html?autoconnect=1&resize=scale`;
-                }, 3000);
-
-                connectWebSocket();
-                document.getElementById('promptBox').disabled = false;
-                document.getElementById('sendBtn').disabled = false;
-
-                btn.innerHTML = "<span> </span> New Agent Task";
+                btn.innerHTML = "<span>⊕</span> New Agent Task";
                 btn.disabled = false;
             } catch (err) {
                 appendMsg("System", "Failed to connect to backend: " + err.message, "tool");
-                btn.innerHTML = "<span> </span> New Agent Task";
+                btn.innerHTML = "<span>⊕</span> New Agent Task";
                 btn.disabled = false;
             }
         }
 
         function connectWebSocket() {
+            if (ws) ws.close();
             ws = new WebSocket(`ws://${location.host}/sessions/${sessionId}/stream`);
 
             ws.onmessage = function (event) {
@@ -385,6 +450,11 @@
             chatHistory.appendChild(div);
             chatHistory.scrollTop = chatHistory.scrollHeight;
         }
+
+        // Load history on initial page load
+        window.onload = () => {
+            loadTaskHistory();
+        };
     </script>
 
 </body>

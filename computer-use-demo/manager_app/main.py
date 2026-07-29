@@ -4,6 +4,7 @@ import asyncio
 import json
 import tarfile
 import io
+import socket
 import traceback
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPException
 from fastapi.responses import FileResponse
@@ -34,10 +35,47 @@ class SessionCreateResponse(BaseModel):
     session_id: str
     vnc_port: int
 
+def get_free_port():
+    """Finds a guaranteed free port natively on the host machine."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(('', 0))
+        return s.getsockname()[1]
+
+async def wait_for_port(port: int, timeout: float = 15.0) -> bool:
+    """Actively poll the host port until noVNC is ready."""
+    start_time = asyncio.get_event_loop().time()
+    while asyncio.get_event_loop().time() - start_time < timeout:
+        try:
+            _, writer = await asyncio.open_connection('127.0.0.1', port)
+            writer.close()
+            await writer.wait_closed()
+            return True
+        except Exception:
+            await asyncio.sleep(0.2)
+    return False
+
+@app.get("/sessions")
+async def list_sessions(db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(SessionModel).order_by(SessionModel.created_at.desc()))
+    sessions = result.scalars().all()
+    return [{
+        "session_id": s.id, 
+        "vnc_port": s.vnc_port, 
+        "created_at": s.created_at.isoformat() if s.created_at else "", 
+        "status": s.status
+    } for s in sessions]
+
+@app.get("/sessions/{session_id}/messages")
+async def get_session_messages(session_id: str, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(MessageModel).filter(MessageModel.session_id == session_id).order_by(MessageModel.id))
+    messages = result.scalars().all()
+    return [{"role": m.role, "content": json.loads(m.content)} for m in messages]
+
 @app.post("/sessions", response_model=SessionCreateResponse)
 async def create_session(db: AsyncSession = Depends(get_db)):
     try:
         session_id = str(uuid.uuid4())
+        host_port = get_free_port()
         
         container = await asyncio.to_thread(
             docker_client.containers.run,
@@ -45,15 +83,14 @@ async def create_session(db: AsyncSession = Depends(get_db)):
             detach=True,
             shm_size="2g",
             ports={
-                '6080/tcp': None,
-                '5900/tcp': None,
-                '8501/tcp': None,
-                '8080/tcp': None
+                '6080/tcp': host_port,
+                '5900/tcp': get_free_port(),
+                '8501/tcp': get_free_port(),
+                '8080/tcp': get_free_port()
             },
             environment={"WIDTH": "1024", "HEIGHT": "768"}
         )
         
-        await asyncio.sleep(3) 
         await asyncio.to_thread(container.reload)
         
         if container.status != "running":
@@ -61,15 +98,11 @@ async def create_session(db: AsyncSession = Depends(get_db)):
             await asyncio.to_thread(container.remove, force=True)
             raise Exception(f"Container crashed. Logs: {error_logs.decode('utf-8')}")
             
-        # Safely extract port binding from container attributes
-        network_settings = container.attrs.get('NetworkSettings', {})
-        ports_dict = network_settings.get('Ports', {})
-        vnc_bindings = ports_dict.get('6080/tcp')
+        vnc_port = host_port
         
-        if not vnc_bindings or not vnc_bindings[0].get('HostPort'):
-            raise Exception("Failed to retrieve host port mapping for noVNC (6080/tcp).")
-            
-        vnc_port = int(vnc_bindings[0]['HostPort'])
+        ready = await wait_for_port(vnc_port, timeout=15.0)
+        if not ready:
+            raise Exception("noVNC server failed to start within the timeout period.")
             
         new_session = SessionModel(
             id=session_id, 
@@ -123,7 +156,6 @@ def _exec_tool_in_container(container_id: str, tool_name: str, tool_input: dict)
     else:
         raise ValueError(f"Unknown tool {tool_name}")
 
-    # Explicitly inject /home/computeruse into sys.path so the module can be found
     script = f"""
 import sys
 sys.path.insert(0, '/home/computeruse')
