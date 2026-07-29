@@ -1,90 +1,403 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Computer Use Agent</title>
+    <meta charset="UTF-8">
+    <title>Legent AI - Computer Use Agent</title>
     <style>
-        body { display: flex; font-family: sans-serif; height: 100vh; margin: 0; }
-        #chat-container { width: 400px; border-right: 1px solid #ccc; display: flex; flex-direction: column; }
-        #chat-history { flex: 1; overflow-y: auto; padding: 10px; background: #f9f9f9; }
-        #input-area { padding: 10px; display: flex; }
-        #desktop-container { flex: 1; background: #000; }
-        iframe { width: 100%; height: 100%; border: none; }
-        .msg { margin-bottom: 8px; padding: 8px; border-radius: 4px; }
-        .user { background: #e3f2fd; }
-        .agent { background: #e8f5e9; }
-        .tool { font-family: monospace; background: #eee; font-size: 0.85em; }
+        :root {
+            --primary: #5c9ce6;
+            --border: #d2e3f5;
+            --bg: #ffffff;
+            --app-bg: #f8fbff;
+            --text-main: #334e68;
+            --text-muted: #829ab1;
+        }
+
+        body {
+            margin: 0;
+            padding: 15px;
+            box-sizing: border-box;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--app-bg);
+            color: var(--text-main);
+        }
+
+        .header {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+            margin-bottom: 20px;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 24px;
+            color: #4a6582;
+            font-weight: 700;
+        }
+        .header-logo {
+            position: absolute;
+            left: 0;
+            background: var(--primary);
+            color: white;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+        }
+
+        .layout {
+            display: flex;
+            flex: 1;
+            gap: 20px;
+            overflow: hidden;
+        }
+
+        .panel {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(92, 156, 230, 0.05);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .left-col {
+            width: 240px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        .search-box {
+            display: flex;
+            align-items: center;
+            background: var(--primary);
+            border-radius: 8px;
+            padding: 2px;
+        }
+        .search-box input {
+            border: none;
+            padding: 10px;
+            border-radius: 0 6px 6px 0;
+            outline: none;
+            flex: 1;
+        }
+        .search-icon {
+            color: white;
+            padding: 0 10px;
+            font-weight: bold;
+        }
+        
+        .task-history {
+            flex: 1;
+            padding: 15px;
+            overflow-y: auto;
+        }
+        .task-history h3 {
+            margin: 0 0 15px 0;
+            font-size: 14px;
+            color: var(--text-main);
+            text-align: center;
+        }
+        .history-item {
+            font-size: 13px;
+            color: var(--text-muted);
+            padding: 8px 0;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+        }
+        .history-item:hover { color: var(--primary); }
+
+        .new-task-btn {
+            background-color: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            padding: 14px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 8px;
+            transition: opacity 0.2s;
+        }
+        .new-task-btn:hover { opacity: 0.9; }
+
+        .middle-col {
+            flex: 1;
+            padding: 15px;
+        }
+        .vnc-header {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        .vnc-header button {
+            background-color: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            padding: 8px 16px;
+            font-size: 13px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .vnc-container {
+            flex: 1;
+            background: #1e3a5f;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: inset 0 0 20px rgba(0,0,0,0.5);
+            display: flex;
+        }
+        iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+
+        .right-col {
+            width: 320px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        
+        .chat-panel {
+            flex: 2;
+        }
+        .chat-history {
+            flex: 1;
+            padding: 15px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .chat-input-area {
+            border-top: 1px solid var(--border);
+            padding: 15px;
+            display: flex;
+            align-items: center;
+        }
+        .chat-input-area input {
+            flex: 1;
+            border: none;
+            outline: none;
+            font-size: 14px;
+            color: var(--text-main);
+        }
+        .chat-input-area button {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            cursor: pointer;
+            font-size: 18px;
+        }
+
+        .msg {
+            padding: 10px 14px;
+            border-radius: 12px;
+            font-size: 13px;
+            line-height: 1.4;
+            max-width: 85%;
+            word-wrap: break-word;
+        }
+        .msg.user {
+            background: var(--primary);
+            color: white;
+            align-self: flex-end;
+            border-bottom-right-radius: 4px;
+        }
+        .msg.agent {
+            background: #f1f5fa;
+            color: var(--text-main);
+            align-self: flex-start;
+            border-bottom-left-radius: 4px;
+            display: flex;
+            gap: 8px;
+        }
+        .msg.tool {
+            background: #fff8e1;
+            color: #8f6d00;
+            align-self: stretch;
+            font-family: monospace;
+            font-size: 12px;
+            border: 1px solid #ffe082;
+        }
+
+        .file-panel {
+            flex: 1;
+            border: 2px dashed var(--border);
+            background: #f8fbff;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-muted);
+            text-align: center;
+            padding: 20px;
+            cursor: pointer;
+        }
+        .file-panel svg {
+            width: 48px;
+            height: 48px;
+            fill: var(--primary);
+            margin-bottom: 10px;
+        }
     </style>
 </head>
 <body>
 
-<div id="chat-container">
-    <div style="padding: 10px;">
-        <button onclick="startSession()">1. Create New Session</button>
+    <div class="header">
+        <div class="header-logo">S</div>
+        <h1>Legent AI</h1>
     </div>
-    <div id="chat-history"></div>
-    <div id="input-area">
-        <input type="text" id="promptBox" style="flex:1;" placeholder="Ask the agent to do something..." disabled>
-        <button id="sendBtn" onclick="sendMessage()" disabled>Send</button>
+
+    <div class="layout">
+        
+        <div class="left-col">
+            <div class="search-box">
+                <span class="search-icon">🔍</span>
+                <input type="text" placeholder="Search">
+            </div>
+            
+            <div class="panel task-history">
+                <h3>Task History</h3>
+                <div class="history-item">📁 Library</div>
+                <div class="history-item">💬 Audio Transcription R...</div>
+                <div class="history-item">💬 Free Zone Tax: Crucial...</div>
+                <div class="history-item">💬 BSEE API Well Numbe...</div>
+                <div class="history-item">📔 Prompt Gallery</div>
+            </div>
+
+            <button class="new-task-btn" onclick="startSession()">
+                <span>⊕</span> New Agent Task
+            </button>
+        </div>
+
+        <div class="panel middle-col">
+            <div class="vnc-header">
+                <button>🎤 Record</button>
+                <button>⏸ Stop</button>
+            </div>
+            <div class="vnc-container">
+                <iframe id="vnc-frame" src=""></iframe>
+            </div>
+        </div>
+
+        <div class="right-col">
+            <div class="panel chat-panel">
+                <div class="chat-history" id="chat-history">
+                    <div class="msg agent">
+                        <span>🤖</span>
+                        <div>Hi! Let me know what task to accomplish</div>
+                    </div>
+                </div>
+                <div class="chat-input-area">
+                    <input type="text" id="promptBox" placeholder="Write a message" disabled onkeypress="handleKeyPress(event)">
+                    <button id="sendBtn" onclick="sendMessage()" disabled>➤</button>
+                </div>
+            </div>
+
+            <div class="panel file-panel">
+                <svg viewBox="0 0 24 24"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM14 13v4h-4v-4H7l5-5 5 5h-3z"/></svg>
+                <div style="font-size: 13px;">Drag and drop a single file here or click to select a file</div>
+            </div>
+        </div>
+
     </div>
-</div>
-<div id="desktop-container">
-    <iframe id="vnc-frame" src=""></iframe>
-</div>
 
-<script>
-    let ws;
-    let sessionId;
+    <script>
+        let ws;
+        let sessionId;
 
-    async function startSession() {
-        const res = await fetch('/sessions', { method: 'POST' });
-        const data = await res.json();
-        sessionId = data.session_id;
-        
-        // Load the VNC interface for this specific session
-        // Assuming Docker host is localhost for development
-        document.getElementById('vnc-frame').src = `http://localhost:${data.vnc_port}/vnc.html`;
-        
-        connectWebSocket();
-        document.getElementById('promptBox').disabled = false;
-        document.getElementById('sendBtn').disabled = false;
-        appendMsg("System", "Session created and isolated environment provisioned.");
-    }
+        async function startSession() {
+            const btn = document.querySelector('.new-task-btn');
+            btn.disabled = true;
+            btn.innerHTML = "Initializing...";
 
-    function connectWebSocket() {
-        ws = new WebSocket(`ws://${location.host}/sessions/${sessionId}/stream`);
-        
-        ws.onmessage = function(event) {
-            const msg = JSON.parse(event.data);
-            if (msg.type === 'message') {
-                appendMsg("Agent", msg.content, "agent");
-            } else if (msg.type === 'progress') {
-                appendMsg("System", msg.content, "tool");
-            } else if (msg.type === 'tool_call') {
-                appendMsg("Action", `Using ${msg.name}...`, "tool");
-            } else if (msg.type === 'tool_result') {
-                appendMsg("Result", msg.content, "tool");
+            try {
+                const res = await fetch('/sessions', { method: 'POST' });
+                const data = await res.json();
+                sessionId = data.session_id;
+                
+                document.getElementById('vnc-frame').src = `http://localhost:${data.vnc_port}/vnc.html`;
+                
+                connectWebSocket();
+                document.getElementById('promptBox').disabled = false;
+                document.getElementById('sendBtn').disabled = false;
+                
+                btn.innerHTML = "<span>⊕</span> New Agent Task";
+                btn.disabled = false;
+            } catch (err) {
+                appendMsg("System", "Failed to connect to backend.", "tool");
+                btn.innerHTML = "<span>⊕</span> New Agent Task";
+                btn.disabled = false;
             }
-        };
-    }
+        }
 
-    function sendMessage() {
-        const promptBox = document.getElementById('promptBox');
-        const text = promptBox.value;
-        if(!text) return;
-        
-        appendMsg("You", text, "user");
-        ws.send(JSON.stringify({ prompt: text }));
-        promptBox.value = '';
-    }
+        function connectWebSocket() {
+            ws = new WebSocket(`ws://${location.host}/sessions/${sessionId}/stream`);
+            
+            ws.onmessage = function(event) {
+                const msg = JSON.parse(event.data);
+                if (msg.type === 'message') {
+                    appendMsg("Agent", msg.content, "agent");
+                } else if (msg.type === 'progress') {
+                    appendMsg("System", msg.content, "tool");
+                } else if (msg.type === 'tool_call') {
+                    appendMsg("Action", `Executing: ${msg.name}`, "tool");
+                } else if (msg.type === 'tool_result') {
+                    appendMsg("Result", msg.content, "tool");
+                }
+            };
+        }
 
-    function appendMsg(sender, text, cssClass) {
-        const div = document.createElement('div');
-        div.className = `msg ${cssClass}`;
-        div.innerHTML = `<strong>${sender}:</strong> ${text}`;
-        document.getElementById('chat-history').appendChild(div);
-        div.scrollIntoView();
-    }
-</script>
+        function handleKeyPress(event) {
+            if (event.key === "Enter") {
+                sendMessage();
+            }
+        }
+
+        function sendMessage() {
+            const promptBox = document.getElementById('promptBox');
+            const text = promptBox.value;
+            if(!text || !ws) return;
+            
+            appendMsg("You", text, "user");
+            ws.send(JSON.stringify({ prompt: text }));
+            promptBox.value = '';
+        }
+
+        function appendMsg(sender, text, cssClass) {
+            const chatHistory = document.getElementById('chat-history');
+            const div = document.createElement('div');
+            div.className = `msg ${cssClass}`;
+            
+            if (cssClass === 'agent') {
+                div.innerHTML = `<span>🤖</span> <div>${text}</div>`;
+            } else {
+                div.textContent = text;
+            }
+
+            chatHistory.appendChild(div);
+            chatHistory.scrollTop = chatHistory.scrollHeight;
+        }
+    </script>
 
 </body>
 </html>
