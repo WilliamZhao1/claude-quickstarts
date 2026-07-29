@@ -1,0 +1,10 @@
+FROM python:3.11-slim
+WORKDIR /app
+COPY requirements-manager.txt .
+RUN pip install -r requirements-manager.txt
+
+# Copy the manager logic and frontend
+COPY manager_app/ ./manager_app/
+COPY frontend/ ./frontend/
+
+CMD ["uvicorn", "manager_app.main:app", "--host", "0.0.0.0", "--port", "8000"]
