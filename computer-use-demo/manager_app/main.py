@@ -1,36 +1,56 @@
-import uuid
-import docker
+"""FastAPI backend for Computer Use Agent session management.
+
+This module provides the core REST APIs and WebSocket endpoints required
+to manage concurrent Anthropic computer use agent sessions, persist data,
+and stream real-time updates.
+"""
+
 import asyncio
-import json
-import tarfile
 import io
+import json
 import socket
+import tarfile
 import traceback
+import uuid
+from typing import Any, Dict, List, Set
+
+import anthropic
+import docker
 import httpx
-from typing import Dict, Set
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from pydantic import BaseModel
-import anthropic
 
-from manager_app.database import init_db, AsyncSessionLocal, SessionModel, MessageModel
+from manager_app.database import AsyncSessionLocal, MessageModel, SessionModel, init_db
 
 app = FastAPI(title="Computer Use API")
+
 # Initialize Docker client with an extended 120-second timeout for Windows/WSL2
 docker_client = docker.from_env(timeout=120)
-client = anthropic.AsyncAnthropic()
+anthropic_client = anthropic.AsyncAnthropic()
 
-# --- Connection and Task Management ---
 active_websockets: Dict[str, Set[WebSocket]] = {}
 active_tasks: Dict[str, asyncio.Task] = {}
 
-async def broadcast(session_id: str, message: dict):
-    """Send a message to all connected websockets for a specific session."""
+
+class SessionCreateResponse(BaseModel):
+    """Data model for returning newly created session details."""
+    session_id: str
+    vnc_port: int
+
+
+async def broadcast(session_id: str, message: dict) -> None:
+    """Broadcasts a JSON message to all connected WebSockets for a session.
+
+    Args:
+        session_id: The unique identifier for the active session.
+        message: A dictionary containing the payload to transmit.
+    """
     if session_id in active_websockets:
-        dead_sockets = set()
-        # Iterate over a copy to safely remove dead connections
+        dead_sockets: Set[WebSocket] = set()
+        
         for ws in list(active_websockets[session_id]):
             try:
                 await ws.send_json(message)
@@ -41,31 +61,59 @@ async def broadcast(session_id: str, message: dict):
             if ws in active_websockets[session_id]:
                 active_websockets[session_id].remove(ws)
 
+
 @app.on_event("startup")
-async def startup():
+async def startup() -> None:
+    """Initializes the database connection pool on application startup."""
     await init_db()
 
+
 @app.get("/")
-async def serve_frontend():
+async def serve_frontend() -> FileResponse:
+    """Serves the main frontend HTML file.
+
+    Returns:
+        A FileResponse containing the index.html frontend interface.
+    """
     return FileResponse("frontend/index.html")
 
-async def get_db():
+
+async def get_db() -> AsyncSession:  # type: ignore
+    """Yields a database session instance for dependency injection.
+
+    Yields:
+        An active SQLAlchemy AsyncSession.
+    """
     async with AsyncSessionLocal() as session:
         yield session
 
-class SessionCreateResponse(BaseModel):
-    session_id: str
-    vnc_port: int
 
-def get_free_port():
-    """Finds a guaranteed free port natively on the host machine."""
+def get_free_port() -> int:
+    """Finds and guarantees a free network port natively on the host machine.
+
+    Returns:
+        An integer representing an available system port.
+    """
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(('', 0))
         return s.getsockname()[1]
 
+
 @app.get("/sessions")
-async def list_sessions(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(SessionModel).order_by(SessionModel.created_at.desc()))
+async def list_sessions(
+    db: AsyncSession = Depends(get_db)
+) -> List[Dict[str, Any]]:
+    """Retrieves all active and historical sessions ordered by creation time.
+
+    Args:
+        db: The injected AsyncSession database dependency.
+
+    Returns:
+        A list of dictionaries containing session metadata.
+    """
+    result = await db.execute(
+        select(SessionModel).order_by(SessionModel.created_at.desc())
+    )
     sessions = result.scalars().all()
     return [{
         "session_id": s.id, 
@@ -74,30 +122,82 @@ async def list_sessions(db: AsyncSession = Depends(get_db)):
         "status": s.status
     } for s in sessions]
 
+
 @app.get("/sessions/{session_id}/messages")
-async def get_session_messages(session_id: str, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(MessageModel).filter(MessageModel.session_id == session_id).order_by(MessageModel.id))
+async def get_session_messages(
+    session_id: str, 
+    db: AsyncSession = Depends(get_db)
+) -> List[Dict[str, Any]]:
+    """Retrieves the interaction history for a specified session.
+
+    Args:
+        session_id: The unique identifier for the requested session.
+        db: The injected AsyncSession database dependency.
+
+    Returns:
+        A list of parsed message dictionaries representing the chat history.
+    """
+    result = await db.execute(
+        select(MessageModel)
+        .filter(MessageModel.session_id == session_id)
+        .order_by(MessageModel.id)
+    )
     messages = result.scalars().all()
     return [{"role": m.role, "content": json.loads(m.content)} for m in messages]
 
+
 @app.get("/sessions/{session_id}/health")
-async def check_session_health(session_id: str, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(SessionModel).filter(SessionModel.id == session_id))
+async def check_session_health(
+    session_id: str, 
+    db: AsyncSession = Depends(get_db)
+) -> Dict[str, bool]:
+    """Verifies that the underlying VNC server for a session is ready.
+
+    Args:
+        session_id: The unique identifier for the queried session.
+        db: The injected AsyncSession database dependency.
+
+    Returns:
+        A dictionary containing a "ready" boolean state.
+
+    Raises:
+        HTTPException: If the requested session ID is not found.
+    """
+    result = await db.execute(
+        select(SessionModel).filter(SessionModel.id == session_id)
+    )
     session_data = result.scalars().first()
+    
     if not session_data:
         raise HTTPException(status_code=404, detail="Session not found")
     
     try:
         async with httpx.AsyncClient() as ac:
-            response = await ac.get(f"http://127.0.0.1:{session_data.vnc_port}/vnc.html", timeout=1.0)
+            response = await ac.get(
+                f"http://127.0.0.1:{session_data.vnc_port}/vnc.html", 
+                timeout=1.0
+            )
             if response.status_code == 200:
                 return {"ready": True}
     except Exception:
         pass
+    
     return {"ready": False}
 
+
 @app.post("/sessions", response_model=SessionCreateResponse)
-async def create_session(db: AsyncSession = Depends(get_db)):
+async def create_session(db: AsyncSession = Depends(get_db)) -> SessionCreateResponse:
+    """Spins up a new Docker container environment and registers the session.
+
+    Args:
+        db: The injected AsyncSession database dependency.
+
+    Returns:
+        A SessionCreateResponse containing the new session ID and host VNC port.
+
+    Raises:
+        HTTPException: If an error occurs during container initialization.
+    """
     try:
         session_id = str(uuid.uuid4())
         host_port = get_free_port()
@@ -107,9 +207,7 @@ async def create_session(db: AsyncSession = Depends(get_db)):
             "computer-use-demo:local",
             detach=True,
             shm_size="2g",
-            ports={
-                '6080/tcp': host_port
-            },
+            ports={'6080/tcp': host_port},
             environment={"WIDTH": "1024", "HEIGHT": "768"}
         )
             
@@ -118,6 +216,7 @@ async def create_session(db: AsyncSession = Depends(get_db)):
             container_id=container.id, 
             vnc_port=host_port
         )
+        
         db.add(new_session)
         await db.commit()
         
@@ -126,18 +225,27 @@ async def create_session(db: AsyncSession = Depends(get_db)):
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.websocket("/sessions/{session_id}/stream")
-async def websocket_endpoint(websocket: WebSocket, session_id: str):
+async def websocket_endpoint(websocket: WebSocket, session_id: str) -> None:
+    """Handles real-time WebSocket communication for a given session.
+
+    Args:
+        websocket: The active WebSocket connection.
+        session_id: The identifier for the session to bind the stream to.
+    """
     await websocket.accept()
     
-    # Register the active websocket connection
     if session_id not in active_websockets:
         active_websockets[session_id] = set()
     active_websockets[session_id].add(websocket)
     
     async with AsyncSessionLocal() as db:
-        result = await db.execute(select(SessionModel).filter(SessionModel.id == session_id))
+        result = await db.execute(
+            select(SessionModel).filter(SessionModel.id == session_id)
+        )
         session_data = result.scalars().first()
+        
         if not session_data:
             active_websockets[session_id].remove(websocket)
             await websocket.close(code=1008)
@@ -151,26 +259,51 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
             if user_msg:
                 content_list = [{"type": "text", "text": user_msg}]
                 async with AsyncSessionLocal() as db:
-                    db.add(MessageModel(session_id=session_id, role="user", content=json.dumps(content_list)))
+                    db.add(MessageModel(
+                        session_id=session_id, 
+                        role="user", 
+                        content=json.dumps(content_list)
+                    ))
                     await db.commit()
                 
-                await broadcast(session_id, {"type": "progress", "content": "Thinking..."})
+                await broadcast(
+                    session_id, 
+                    {"type": "progress", "content": "Thinking..."}
+                )
                 
-                # Check if an agent is already running for this session
                 if session_id in active_tasks and not active_tasks[session_id].done():
-                    await broadcast(session_id, {"type": "progress", "content": "Agent is already processing a task..."})
+                    await broadcast(
+                        session_id, 
+                        {"type": "progress", "content": "Agent is already processing a task..."}
+                    )
                 else:
-                    # Fire and forget the background task
                     active_tasks[session_id] = asyncio.create_task(
                         run_agent_loop(session_id, session_data.container_id)
                     )
             
     except WebSocketDisconnect:
-        # Gracefully handle disconnect without killing the background loop
         if session_id in active_websockets and websocket in active_websockets[session_id]:
             active_websockets[session_id].remove(websocket)
 
-def _exec_tool_in_container(container_id: str, tool_name: str, tool_input: dict):
+
+def _exec_tool_in_container(
+    container_id: str, 
+    tool_name: str, 
+    tool_input: dict
+) -> Any:
+    """Packages and executes a script natively inside a Docker container.
+
+    Args:
+        container_id: The ID of the target Docker container.
+        tool_name: The name of the tool to invoke.
+        tool_input: The parsed JSON arguments passed to the tool.
+
+    Returns:
+        The execution output tuple containing the exit code and binary log.
+
+    Raises:
+        ValueError: If the requested tool name is not recognized.
+    """
     container = docker_client.containers.get(container_id)
     
     if tool_name == "bash":
@@ -211,8 +344,8 @@ asyncio.run(main())
         tarinfo = tarfile.TarInfo(name='run_tool.py')
         tarinfo.size = len(script_bytes)
         tar.addfile(tarinfo, io.BytesIO(script_bytes))
-    tar_stream.seek(0)
     
+    tar_stream.seek(0)
     container.put_archive('/tmp/', tar_stream)
     
     return container.exec_run(
@@ -221,18 +354,29 @@ asyncio.run(main())
         workdir="/home/computeruse"
     )
 
-async def run_agent_loop(session_id: str, container_id: str):
+
+async def run_agent_loop(session_id: str, container_id: str) -> None:
+    """Manages the lifecycle loop communicating with Anthropic APIs and tools.
+
+    Args:
+        session_id: The active session identifier.
+        container_id: The Docker container ID associated with the environment.
+    """
     system_prompt = "You are a computer use agent. You have access to a sandboxed Ubuntu environment."
     
     try:
         async with AsyncSessionLocal() as db:
-            result = await db.execute(select(MessageModel).filter(MessageModel.session_id == session_id).order_by(MessageModel.id))
+            result = await db.execute(
+                select(MessageModel)
+                .filter(MessageModel.session_id == session_id)
+                .order_by(MessageModel.id)
+            )
             past_messages = result.scalars().all()
             
         messages = [{"role": msg.role, "content": json.loads(msg.content)} for msg in past_messages]
 
         while True:
-            response = await client.beta.messages.create(
+            response = await anthropic_client.beta.messages.create(
                 model="claude-opus-4-8",
                 max_tokens=1024,
                 betas=["computer-use-2025-11-24"], 
@@ -250,7 +394,11 @@ async def run_agent_loop(session_id: str, container_id: str):
             messages.append({"role": "assistant", "content": assistant_content_dicts})
 
             async with AsyncSessionLocal() as db:
-                db.add(MessageModel(session_id=session_id, role="assistant", content=json.dumps(assistant_content_dicts)))
+                db.add(MessageModel(
+                    session_id=session_id, 
+                    role="assistant", 
+                    content=json.dumps(assistant_content_dicts)
+                ))
                 await db.commit()
 
             tool_results = []
@@ -258,7 +406,10 @@ async def run_agent_loop(session_id: str, container_id: str):
 
             for content_block in assistant_content:
                 if content_block.type == "text":
-                    await broadcast(session_id, {"type": "message", "role": "assistant", "content": content_block.text})
+                    await broadcast(
+                        session_id, 
+                        {"type": "message", "role": "assistant", "content": content_block.text}
+                    )
                         
                 elif content_block.type == "tool_use":
                     has_tool_use = True
@@ -266,9 +417,17 @@ async def run_agent_loop(session_id: str, container_id: str):
                     tool_input = content_block.input
                     tool_id = content_block.id
                     
-                    await broadcast(session_id, {"type": "tool_call", "name": tool_name, "input": tool_input})
+                    await broadcast(
+                        session_id, 
+                        {"type": "tool_call", "name": tool_name, "input": tool_input}
+                    )
                     
-                    exit_code, output = await asyncio.to_thread(_exec_tool_in_container, container_id, tool_name, tool_input)
+                    exit_code, output = await asyncio.to_thread(
+                        _exec_tool_in_container, 
+                        container_id, 
+                        tool_name, 
+                        tool_input
+                    )
                     
                     try:
                         if exit_code != 0:
@@ -279,12 +438,18 @@ async def run_agent_loop(session_id: str, container_id: str):
                         
                         if result_dict.get('output'):
                             tool_res_content.append({"type": "text", "text": result_dict['output']})
+                        
                         if result_dict.get('error'):
                             tool_res_content.append({"type": "text", "text": f"Error: {result_dict['error']}"})
+                        
                         if result_dict.get('base64_image'):
                             tool_res_content.append({
                                 "type": "image", 
-                                "source": {"type": "base64", "media_type": "image/png", "data": result_dict['base64_image']}
+                                "source": {
+                                    "type": "base64", 
+                                    "media_type": "image/png", 
+                                    "data": result_dict['base64_image']
+                                }
                             })
                             await broadcast(session_id, {"type": "tool_result", "content": "Screenshot captured."})
                         else:
@@ -301,20 +466,33 @@ async def run_agent_loop(session_id: str, container_id: str):
 
                     except Exception as parse_err:
                         err_str = output.decode('utf-8') if output else str(parse_err)
-                        await broadcast(session_id, {"type": "tool_result", "content": f"Failed execution: {err_str}"})
-                        tool_results.append({"type": "tool_result", "tool_use_id": tool_id, "content": [{"type": "text", "text": err_str}]})
+                        await broadcast(
+                            session_id, 
+                            {"type": "tool_result", "content": f"Failed execution: {err_str}"}
+                        )
+                        tool_results.append({
+                            "type": "tool_result", 
+                            "tool_use_id": tool_id, 
+                            "content": [{"type": "text", "text": err_str}]
+                        })
 
             if has_tool_use:
                 messages.append({"role": "user", "content": tool_results})
                 async with AsyncSessionLocal() as db:
-                    db.add(MessageModel(session_id=session_id, role="user", content=json.dumps(tool_results)))
+                    db.add(MessageModel(
+                        session_id=session_id, 
+                        role="user", 
+                        content=json.dumps(tool_results)
+                    ))
                     await db.commit()
             else:
                 break
 
     except Exception as e:
-        await broadcast(session_id, {"type": "progress", "content": f"API Error: {str(e)}"})
+        await broadcast(
+            session_id, 
+            {"type": "progress", "content": f"API Error: {str(e)}"}
+        )
     finally:
-        # Clean up the task reference when the agent loop completes
         if session_id in active_tasks:
             active_tasks.pop(session_id, None)

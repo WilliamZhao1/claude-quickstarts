@@ -1,485 +1,507 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
-    <meta charset="UTF-8">
-    <title>Legent AI - Computer Use Agent</title>
-    <style>
-        :root {
-            --primary: #5c9ce6;
-            --border: #d2e3f5;
-            --bg: #ffffff;
-            --app-bg: #f8fbff;
-            --text-main: #334e68;
-            --text-muted: #829ab1;
-        }
+  <meta charset="UTF-8">
+  <title>Legent AI - Computer Use Agent</title>
+  <style>
+    :root {
+      --primary: #5c9ce6;
+      --border: #d2e3f5;
+      --bg: #ffffff;
+      --app-bg: #f8fbff;
+      --text-main: #334e68;
+      --text-muted: #829ab1;
+    }
 
-        body {
-            margin: 0;
-            padding: 15px;
-            box-sizing: border-box;
-            height: 100vh;
-            display: flex;
-            flex-direction: column;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            background-color: var(--app-bg);
-            color: var(--text-main);
-            overflow: hidden;
-        }
+    body {
+      margin: 0;
+      padding: 15px;
+      box-sizing: border-box;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: var(--app-bg);
+      color: var(--text-main);
+      overflow: hidden;
+    }
 
-        .header {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            position: relative;
-            margin-bottom: 20px;
-        }
+    .header {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      position: relative;
+      margin-bottom: 20px;
+    }
 
-        .header h1 {
-            margin: 0;
-            font-size: 24px;
-            color: #4a6582;
-            font-weight: 700;
-        }
+    .header h1 {
+      margin: 0;
+      font-size: 24px;
+      color: #4a6582;
+      font-weight: 700;
+    }
 
-        .header-logo {
-            position: absolute;
-            left: 0;
-            background: var(--primary);
-            color: white;
-            width: 32px;
-            height: 32px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-weight: bold;
-        }
+    .header-logo {
+      position: absolute;
+      left: 0;
+      background: var(--primary);
+      color: white;
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: bold;
+    }
 
-        .layout {
-            display: flex;
-            flex: 1;
-            gap: 20px;
-            overflow: hidden;
-            min-height: 0;
-        }
+    .layout {
+      display: flex;
+      flex: 1;
+      gap: 20px;
+      overflow: hidden;
+      min-height: 0;
+    }
 
-        .panel {
-            background: var(--bg);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            box-shadow: 0 4px 12px rgba(92, 156, 230, 0.05);
-            display: flex;
-            flex-direction: column;
-        }
+    .panel {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      box-shadow: 0 4px 12px rgba(92, 156, 230, 0.05);
+      display: flex;
+      flex-direction: column;
+    }
 
-        .left-col {
-            width: 240px;
-            display: flex;
-            flex-direction: column;
-            gap: 15px;
-        }
+    .left-col {
+      width: 240px;
+      display: flex;
+      flex-direction: column;
+      gap: 15px;
+    }
 
-        .task-history {
-            flex: 1;
-            padding: 15px;
-            overflow-y: auto;
-        }
+    .task-history {
+      flex: 1;
+      padding: 15px;
+      overflow-y: auto;
+    }
 
-        .task-history h3 {
-            margin: 0 0 15px 0;
-            font-size: 14px;
-            color: var(--text-main);
-            text-align: center;
-        }
+    .task-history h3 {
+      margin: 0 0 15px 0;
+      font-size: 14px;
+      color: var(--text-main);
+      text-align: center;
+    }
 
-        .history-item {
-            font-size: 13px;
-            color: var(--text-muted);
-            padding: 10px;
-            border-radius: 6px;
-            cursor: pointer;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
+    .history-item {
+      font-size: 13px;
+      color: var(--text-muted);
+      padding: 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
 
-        .history-item:hover {
-            background-color: #f1f5fa;
-            color: var(--primary);
-        }
+    .history-item:hover {
+      background-color: #f1f5fa;
+      color: var(--primary);
+    }
 
-        .history-item.active {
-            background-color: var(--primary);
-            color: white;
-        }
+    .history-item.active {
+      background-color: var(--primary);
+      color: white;
+    }
 
-        .new-task-btn {
-            background-color: var(--primary);
-            color: white;
-            border: none;
-            border-radius: 8px;
-            padding: 14px;
-            font-size: 15px;
-            font-weight: 600;
-            cursor: pointer;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            gap: 8px;
-            transition: opacity 0.2s;
-        }
+    .new-task-btn {
+      background-color: var(--primary);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      padding: 14px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 8px;
+      transition: opacity 0.2s;
+    }
 
-        .new-task-btn:hover {
-            opacity: 0.9;
-        }
+    .new-task-btn:hover {
+      opacity: 0.9;
+    }
 
-        .middle-col {
-            flex: 1;
-            padding: 15px;
-            display: flex;
-            flex-direction: column;
-            min-width: 0;
-        }
+    .middle-col {
+      flex: 1;
+      padding: 15px;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
 
-        .vnc-header {
-            display: flex;
-            justify-content: flex-end;
-            gap: 10px;
-            margin-bottom: 15px;
-        }
+    .vnc-header {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      margin-bottom: 15px;
+    }
 
-        .vnc-header button {
-            background-color: var(--primary);
-            color: white;
-            border: none;
-            border-radius: 6px;
-            padding: 8px 16px;
-            font-size: 13px;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            gap: 5px;
-        }
+    .vnc-header button {
+      background-color: var(--primary);
+      color: white;
+      border: none;
+      border-radius: 6px;
+      padding: 8px 16px;
+      font-size: 13px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
 
-        .vnc-container {
-            flex: 1;
-            background: #1e3a5f;
-            border-radius: 8px;
-            overflow: hidden;
-            box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.5);
-            display: flex;
-            min-height: 0;
-        }
+    .vnc-container {
+      flex: 1;
+      background: #1e3a5f;
+      border-radius: 8px;
+      overflow: hidden;
+      box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.5);
+      display: flex;
+      min-height: 0;
+    }
 
-        iframe {
-            width: 100%;
-            height: 100%;
-            border: none;
-        }
+    iframe {
+      width: 100%;
+      height: 100%;
+      border: none;
+    }
 
-        .right-col {
-            width: 340px;
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-        }
+    .right-col {
+      width: 340px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
 
-        .chat-panel {
-            flex: 1;
-            min-height: 0;
-            overflow: hidden;
-        }
+    .chat-panel {
+      flex: 1;
+      min-height: 0;
+      overflow: hidden;
+    }
 
-        .chat-history {
-            flex: 1;
-            padding: 15px;
-            overflow-y: auto;
-            min-height: 0;
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-        }
+    .chat-history {
+      flex: 1;
+      padding: 15px;
+      overflow-y: auto;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
 
-        .chat-input-area {
-            border-top: 1px solid var(--border);
-            padding: 15px;
-            display: flex;
-            align-items: center;
-            background: var(--bg);
-            flex-shrink: 0;
-        }
+    .chat-input-area {
+      border-top: 1px solid var(--border);
+      padding: 15px;
+      display: flex;
+      align-items: center;
+      background: var(--bg);
+      flex-shrink: 0;
+    }
 
-        .chat-input-area input {
-            flex: 1;
-            border: none;
-            outline: none;
-            font-size: 14px;
-            color: var(--text-main);
-        }
+    .chat-input-area input {
+      flex: 1;
+      border: none;
+      outline: none;
+      font-size: 14px;
+      color: var(--text-main);
+    }
 
-        .chat-input-area button {
-            background: none;
-            border: none;
-            color: var(--text-muted);
-            cursor: pointer;
-            font-size: 18px;
-        }
+    .chat-input-area button {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: 18px;
+    }
 
-        .msg {
-            padding: 10px 14px;
-            border-radius: 12px;
-            font-size: 13px;
-            line-height: 1.4;
-            max-width: 85%;
-            word-wrap: break-word;
-        }
+    .msg {
+      padding: 10px 14px;
+      border-radius: 12px;
+      font-size: 13px;
+      line-height: 1.4;
+      max-width: 85%;
+      word-wrap: break-word;
+    }
 
-        .msg.user {
-            background: var(--primary);
-            color: white;
-            align-self: flex-end;
-            border-bottom-right-radius: 4px;
-        }
+    .msg.user {
+      background: var(--primary);
+      color: white;
+      align-self: flex-end;
+      border-bottom-right-radius: 4px;
+    }
 
-        .msg.agent {
-            background: #f1f5fa;
-            color: var(--text-main);
-            align-self: flex-start;
-            border-bottom-left-radius: 4px;
-            display: flex;
-            gap: 8px;
-        }
+    .msg.agent {
+      background: #f1f5fa;
+      color: var(--text-main);
+      align-self: flex-start;
+      border-bottom-left-radius: 4px;
+      display: flex;
+      gap: 8px;
+    }
 
-        .msg.tool {
-            background: #fff8e1;
-            color: #8f6d00;
-            align-self: stretch;
-            font-family: monospace;
-            font-size: 12px;
-            border: 1px solid #ffe082;
-        }
-    </style>
+    .msg.tool {
+      background: #fff8e1;
+      color: #8f6d00;
+      align-self: stretch;
+      font-family: monospace;
+      font-size: 12px;
+      border: 1px solid #ffe082;
+    }
+  </style>
 </head>
 
 <body>
+  <div class="header">
+    <div class="header-logo">S</div>
+    <h1>Legent AI</h1>
+  </div>
 
-    <div class="header">
-        <div class="header-logo">S</div>
-        <h1>Legent AI</h1>
+  <div class="layout">
+    <div class="left-col">
+      <div class="panel task-history" id="task-history-list">
+        <h3>Task History</h3>
+      </div>
+      <button class="new-task-btn" onclick="startSession()">
+        <span>⊕</span> New Agent Task
+      </button>
     </div>
 
-    <div class="layout">
-
-        <div class="left-col">
-            <div class="panel task-history" id="task-history-list">
-                <h3>Task History</h3>
-            </div>
-
-            <button class="new-task-btn" onclick="startSession()">
-                <span>⊕</span> New Agent Task
-            </button>
-        </div>
-
-        <div class="panel middle-col">
-            <div class="vnc-header">
-                <button
-                    onclick="if(sessionId) { document.getElementById('vnc-frame').src = document.getElementById('vnc-frame').src; }">
-                    <span>🔄</span> Refresh Screen
-                </button>
-            </div>
-            <div class="vnc-container">
-                <iframe id="vnc-frame" src=""></iframe>
-            </div>
-        </div>
-
-        <div class="right-col">
-            <div class="panel chat-panel">
-                <div class="chat-history" id="chat-history">
-                    <div class="msg agent">
-                        <span>🤖</span>
-                        <div>Hi! Let me know what task to accomplish</div>
-                    </div>
-                </div>
-                <div class="chat-input-area">
-                    <input type="text" id="promptBox" placeholder="Write a message" disabled
-                        onkeypress="handleKeyPress(event)">
-                    <button id="sendBtn" onclick="sendMessage()" disabled>➤</button>
-                </div>
-            </div>
-        </div>
-
+    <div class="panel middle-col">
+      <div class="vnc-header">
+        <button
+          onclick="if(sessionId) { document.getElementById('vnc-frame').src = document.getElementById('vnc-frame').src; }">
+          <span>🔄</span> Refresh Screen
+        </button>
+      </div>
+      <div class="vnc-container">
+        <iframe id="vnc-frame" src=""></iframe>
+      </div>
     </div>
 
-    <script>
-        let ws;
-        let sessionId;
+    <div class="right-col">
+      <div class="panel chat-panel">
+        <div class="chat-history" id="chat-history">
+          <div class="msg agent">
+            <span>🤖</span>
+            <div>Hi! Let me know what task to accomplish</div>
+          </div>
+        </div>
+        <div class="chat-input-area">
+          <input type="text" id="promptBox" placeholder="Write a message" disabled
+            onkeypress="handleKeyPress(event)">
+          <button id="sendBtn" onclick="sendMessage()" disabled>➤</button>
+        </div>
+      </div>
+    </div>
+  </div>
 
-        async function loadTaskHistory(activeId = null) {
-            try {
-                const res = await fetch('/sessions');
-                const sessions = await res.json();
-                const container = document.getElementById('task-history-list');
-                container.innerHTML = '<h3>Task History</h3>';
+  <script>
+    let ws;
+    let sessionId;
 
-                sessions.forEach((s, index) => {
-                    const item = document.createElement('div');
-                    item.className = `history-item ${s.session_id === activeId ? 'active' : ''}`;
-                    item.textContent = `Session ${index + 1} (${s.created_at.substring(11, 16)})`;
-                    item.onclick = () => switchSession(s.session_id, s.vnc_port);
-                    container.appendChild(item);
+    /**
+     * Fetches and renders the history of tasks/sessions from the backend.
+     * @param {string|null} activeId - The ID of the currently active session.
+     */
+    async function loadTaskHistory(activeId = null) {
+      try {
+        const res = await fetch('/sessions');
+        const sessions = await res.json();
+        const container = document.getElementById('task-history-list');
+        container.innerHTML = '<h3>Task History</h3>';
+
+        sessions.forEach((s, index) => {
+          const item = document.createElement('div');
+          item.className = `history-item ${s.session_id === activeId ? 'active' : ''}`;
+          item.textContent = `Session ${index + 1} (${s.created_at.substring(11, 16)})`;
+          item.onclick = () => switchSession(s.session_id, s.vnc_port);
+          container.appendChild(item);
+        });
+      } catch (err) {
+        console.error('Failed to load task history', err);
+      }
+    }
+
+    /**
+     * Switches the active session, updating the VNC viewer and loading message history.
+     * @param {string} id - The session ID to switch to.
+     * @param {number} vncPort - The port number for the VNC connection.
+     */
+    async function switchSession(id, vncPort) {
+      if (ws) {
+        ws.close();
+      }
+      sessionId = id;
+
+      const vncFrame = document.getElementById('vnc-frame');
+      vncFrame.src = `http://localhost:${vncPort}/vnc.html?autoconnect=1&resize=scale`;
+
+      const chatHistory = document.getElementById('chat-history');
+      chatHistory.innerHTML = '';
+
+      try {
+        const res = await fetch(`/sessions/${sessionId}/messages`);
+        const messages = await res.json();
+
+        if (messages.length === 0) {
+          appendMsg('Agent', 'Hi! Let me know what task to accomplish', 'agent');
+        } else {
+          messages.forEach((m) => {
+            if (m.role === 'user') {
+              const text = Array.isArray(m.content)
+                ? m.content.find((c) => c.type === 'text')?.text || 'Task prompt'
+                : m.content;
+              appendMsg('You', text, 'user');
+            } else if (m.role === 'assistant') {
+              if (typeof m.content === 'string') {
+                appendMsg('Agent', m.content, 'agent');
+              } else if (Array.isArray(m.content)) {
+                m.content.forEach((b) => {
+                  if (b.type === 'text') appendMsg('Agent', b.text, 'agent');
+                  else if (b.type === 'tool_use') appendMsg('Action', `Executing: ${b.name}`, 'tool');
                 });
-            } catch (err) {
-                console.error("Failed to load task history", err);
+              }
             }
+          });
+        }
+      } catch (err) {
+        console.error('Failed to load messages', err);
+      }
+
+      connectWebSocket();
+      document.getElementById('promptBox').disabled = false;
+      document.getElementById('sendBtn').disabled = false;
+      loadTaskHistory(sessionId);
+    }
+
+    /**
+     * Initializes a new session by communicating with the backend API.
+     */
+    async function startSession() {
+      const btn = document.querySelector('.new-task-btn');
+      btn.disabled = true;
+      btn.innerHTML = 'Initializing...';
+      try {
+        const res = await fetch('/sessions', { method: 'POST' });
+        const data = await res.json();
+
+        if (!data.session_id || !data.vnc_port) {
+          throw new Error('Invalid session response from server.');
         }
 
-        async function switchSession(id, vncPort) {
-            if (ws) ws.close();
-            sessionId = id;
+        btn.innerHTML = 'Starting VM...';
 
-            // Update VNC Frame instantly
-            document.getElementById('vnc-frame').src = `http://localhost:${vncPort}/vnc.html?autoconnect=1&resize=scale`;
-
-            // Load messages
-            const chatHistory = document.getElementById('chat-history');
-            chatHistory.innerHTML = '';
-
-            try {
-                const res = await fetch(`/sessions/${sessionId}/messages`);
-                const messages = await res.json();
-
-                if (messages.length === 0) {
-                    appendMsg("Agent", "Hi! Let me know what task to accomplish", "agent");
-                } else {
-                    messages.forEach(m => {
-                        if (m.role === 'user') {
-                            const text = Array.isArray(m.content) ? m.content.find(c => c.type === 'text')?.text || "Task prompt" : m.content;
-                            appendMsg("You", text, "user");
-                        } else if (m.role === 'assistant') {
-                            if (typeof m.content === 'string') {
-                                appendMsg("Agent", m.content, "agent");
-                            } else if (Array.isArray(m.content)) {
-                                m.content.forEach(b => {
-                                    if (b.type === 'text') appendMsg("Agent", b.text, "agent");
-                                    else if (b.type === 'tool_use') appendMsg("Action", `Executing: ${b.name}`, "tool");
-                                });
-                            }
-                        }
-                    });
-                }
-            } catch (err) {
-                console.error("Failed to load messages", err);
+        let isReady = false;
+        for (let i = 0; i < 20; i++) {
+          try {
+            const healthRes = await fetch(`/sessions/${data.session_id}/health`);
+            const healthData = await healthRes.json();
+            if (healthData.ready) {
+              isReady = true;
+              break;
             }
-
-            connectWebSocket();
-            document.getElementById('promptBox').disabled = false;
-            document.getElementById('sendBtn').disabled = false;
-            loadTaskHistory(sessionId);
+          } catch (e) {
+            // Ignore network errors while waiting for readiness
+          }
+          await new Promise((r) => setTimeout(r, 1000));
         }
 
-        async function startSession() {
-            const btn = document.querySelector('.new-task-btn');
-            btn.disabled = true;
-            btn.innerHTML = "Initializing...";
-            try {
-                const res = await fetch('/sessions', { method: 'POST' });
-                const data = await res.json();
-
-                if (!data.session_id || !data.vnc_port) {
-                    throw new Error("Invalid session response from server.");
-                }
-
-                btn.innerHTML = "Starting VM...";
-
-                // Poll the backend health endpoint until the VNC server is ready
-                let isReady = false;
-                for (let i = 0; i < 20; i++) {
-                    try {
-                        const healthRes = await fetch(`/sessions/${data.session_id}/health`);
-                        const healthData = await healthRes.json();
-                        if (healthData.ready) {
-                            isReady = true;
-                            break;
-                        }
-                    } catch (e) {
-                        // Ignore network errors while waiting for readiness
-                    }
-                    // Wait 1 second before checking again
-                    await new Promise(r => setTimeout(r, 1000));
-                }
-
-                if (!isReady) {
-                    throw new Error("Virtual machine failed to start within 20 seconds.");
-                }
-
-                // Switch only after the VNC server is confirmed ready
-                await switchSession(data.session_id, data.vnc_port);
-
-                btn.innerHTML = "<span>⊕</span> New Agent Task";
-                btn.disabled = false;
-            } catch (err) {
-                appendMsg("System", "Failed to connect to backend: " + err.message, "tool");
-                btn.innerHTML = "<span>⊕</span> New Agent Task";
-                btn.disabled = false;
-            }
+        if (!isReady) {
+          throw new Error('Virtual machine failed to start within 20 seconds.');
         }
 
-        function connectWebSocket() {
-            if (ws) ws.close();
-            ws = new WebSocket(`ws://${location.host}/sessions/${sessionId}/stream`);
+        await switchSession(data.session_id, data.vnc_port);
 
-            ws.onmessage = function (event) {
-                const msg = JSON.parse(event.data);
-                if (msg.type === 'message') {
-                    appendMsg("Agent", msg.content, "agent");
-                } else if (msg.type === 'progress') {
-                    appendMsg("System", msg.content, "tool");
-                } else if (msg.type === 'tool_call') {
-                    appendMsg("Action", `Executing: ${msg.name}`, "tool");
-                } else if (msg.type === 'tool_result') {
-                    appendMsg("Result", msg.content, "tool");
-                }
-            };
+        btn.innerHTML = '<span>⊕</span> New Agent Task';
+        btn.disabled = false;
+      } catch (err) {
+        appendMsg('System', 'Failed to connect to backend: ' + err.message, 'tool');
+        btn.innerHTML = '<span>⊕</span> New Agent Task';
+        btn.disabled = false;
+      }
+    }
+
+    /**
+     * Connects to the WebSocket for streaming real-time agent updates.
+     */
+    function connectWebSocket() {
+      if (ws) {
+        ws.close();
+      }
+      ws = new WebSocket(`ws://${location.host}/sessions/${sessionId}/stream`);
+
+      ws.onmessage = function (event) {
+        const msg = JSON.parse(event.data);
+        if (msg.type === 'message') {
+          appendMsg('Agent', msg.content, 'agent');
+        } else if (msg.type === 'progress') {
+          appendMsg('System', msg.content, 'tool');
+        } else if (msg.type === 'tool_call') {
+          appendMsg('Action', `Executing: ${msg.name}`, 'tool');
+        } else if (msg.type === 'tool_result') {
+          appendMsg('Result', msg.content, 'tool');
         }
+      };
+    }
 
-        function handleKeyPress(event) {
-            if (event.key === "Enter") {
-                sendMessage();
-            }
-        }
+    /**
+     * Handles keyboard events for the prompt input box.
+     * @param {KeyboardEvent} event - The keyboard event object.
+     */
+    function handleKeyPress(event) {
+      if (event.key === 'Enter') {
+        sendMessage();
+      }
+    }
 
-        function sendMessage() {
-            const promptBox = document.getElementById('promptBox');
-            const text = promptBox.value;
-            if (!text || !ws) return;
+    /**
+     * Sends the current user prompt to the active WebSocket session.
+     */
+    function sendMessage() {
+      const promptBox = document.getElementById('promptBox');
+      const text = promptBox.value;
+      if (!text || !ws) return;
 
-            appendMsg("You", text, "user");
-            ws.send(JSON.stringify({ prompt: text }));
-            promptBox.value = '';
-        }
+      appendMsg('You', text, 'user');
+      ws.send(JSON.stringify({ prompt: text }));
+      promptBox.value = '';
+    }
 
-        function appendMsg(sender, text, cssClass) {
-            const chatHistory = document.getElementById('chat-history');
-            const div = document.createElement('div');
-            div.className = `msg ${cssClass}`;
+    /**
+     * Appends a formatted message bubble to the chat interface.
+     * @param {string} sender - The logical sender of the message.
+     * @param {string} text - The content of the message.
+     * @param {string} cssClass - The CSS class defining the bubble style.
+     */
+    function appendMsg(sender, text, cssClass) {
+      const chatHistory = document.getElementById('chat-history');
+      const div = document.createElement('div');
+      div.className = `msg ${cssClass}`;
 
-            if (cssClass === 'agent') {
-                div.innerHTML = `<span>🤖</span> <div>${text}</div>`;
-            } else {
-                div.textContent = text;
-            }
+      if (cssClass === 'agent') {
+        div.innerHTML = `<span>🤖</span> <div>${text}</div>`;
+      } else {
+        div.textContent = text;
+      }
 
-            chatHistory.appendChild(div);
-            chatHistory.scrollTop = chatHistory.scrollHeight;
-        }
+      chatHistory.appendChild(div);
+      chatHistory.scrollTop = chatHistory.scrollHeight;
+    }
 
-        // Load history on initial page load
-        window.onload = () => {
-            loadTaskHistory();
-        };
-    </script>
-
+    window.onload = () => {
+      loadTaskHistory();
+    };
+  </script>
 </body>
-
 </html>
