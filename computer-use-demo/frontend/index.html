@@ -266,7 +266,7 @@
 
     <div class="header">
         <div class="header-logo">S</div>
-        <h1>Computer Use Demo</h1>
+        <h1>Legent AI</h1>
     </div>
 
     <div class="layout">
@@ -390,7 +390,30 @@
                     throw new Error("Invalid session response from server.");
                 }
 
-                // Switch immediately because backend already verified port readiness
+                btn.innerHTML = "Starting VM...";
+
+                // Poll the backend health endpoint until the VNC server is ready
+                let isReady = false;
+                for (let i = 0; i < 20; i++) {
+                    try {
+                        const healthRes = await fetch(`/sessions/${data.session_id}/health`);
+                        const healthData = await healthRes.json();
+                        if (healthData.ready) {
+                            isReady = true;
+                            break;
+                        }
+                    } catch (e) {
+                        // Ignore network errors while waiting for readiness
+                    }
+                    // Wait 1 second before checking again
+                    await new Promise(r => setTimeout(r, 1000));
+                }
+
+                if (!isReady) {
+                    throw new Error("Virtual machine failed to start within 20 seconds.");
+                }
+
+                // Switch only after the VNC server is confirmed ready
                 await switchSession(data.session_id, data.vnc_port);
 
                 btn.innerHTML = "<span>⊕</span> New Agent Task";

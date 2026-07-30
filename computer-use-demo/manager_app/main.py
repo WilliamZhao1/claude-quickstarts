@@ -6,6 +6,8 @@ import tarfile
 import io
 import socket
 import traceback
+import httpx
+from typing import Dict, Set
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPException
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,8 +18,28 @@ import anthropic
 from manager_app.database import init_db, AsyncSessionLocal, SessionModel, MessageModel
 
 app = FastAPI(title="Computer Use API")
-docker_client = docker.from_env()
+# Initialize Docker client with an extended 120-second timeout for Windows/WSL2
+docker_client = docker.from_env(timeout=120)
 client = anthropic.AsyncAnthropic()
+
+# --- Connection and Task Management ---
+active_websockets: Dict[str, Set[WebSocket]] = {}
+active_tasks: Dict[str, asyncio.Task] = {}
+
+async def broadcast(session_id: str, message: dict):
+    """Send a message to all connected websockets for a specific session."""
+    if session_id in active_websockets:
+        dead_sockets = set()
+        # Iterate over a copy to safely remove dead connections
+        for ws in list(active_websockets[session_id]):
+            try:
+                await ws.send_json(message)
+            except Exception:
+                dead_sockets.add(ws)
+        
+        for ws in dead_sockets:
+            if ws in active_websockets[session_id]:
+                active_websockets[session_id].remove(ws)
 
 @app.on_event("startup")
 async def startup():
@@ -41,19 +63,6 @@ def get_free_port():
         s.bind(('', 0))
         return s.getsockname()[1]
 
-async def wait_for_port(port: int, timeout: float = 15.0) -> bool:
-    """Actively poll the host port until noVNC is ready."""
-    start_time = asyncio.get_event_loop().time()
-    while asyncio.get_event_loop().time() - start_time < timeout:
-        try:
-            _, writer = await asyncio.open_connection('127.0.0.1', port)
-            writer.close()
-            await writer.wait_closed()
-            return True
-        except Exception:
-            await asyncio.sleep(0.2)
-    return False
-
 @app.get("/sessions")
 async def list_sessions(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(SessionModel).order_by(SessionModel.created_at.desc()))
@@ -71,6 +80,22 @@ async def get_session_messages(session_id: str, db: AsyncSession = Depends(get_d
     messages = result.scalars().all()
     return [{"role": m.role, "content": json.loads(m.content)} for m in messages]
 
+@app.get("/sessions/{session_id}/health")
+async def check_session_health(session_id: str, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(SessionModel).filter(SessionModel.id == session_id))
+    session_data = result.scalars().first()
+    if not session_data:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    try:
+        async with httpx.AsyncClient() as ac:
+            response = await ac.get(f"http://127.0.0.1:{session_data.vnc_port}/vnc.html", timeout=1.0)
+            if response.status_code == 200:
+                return {"ready": True}
+    except Exception:
+        pass
+    return {"ready": False}
+
 @app.post("/sessions", response_model=SessionCreateResponse)
 async def create_session(db: AsyncSession = Depends(get_db)):
     try:
@@ -83,36 +108,20 @@ async def create_session(db: AsyncSession = Depends(get_db)):
             detach=True,
             shm_size="2g",
             ports={
-                '6080/tcp': host_port,
-                '5900/tcp': get_free_port(),
-                '8501/tcp': get_free_port(),
-                '8080/tcp': get_free_port()
+                '6080/tcp': host_port
             },
             environment={"WIDTH": "1024", "HEIGHT": "768"}
         )
-        
-        await asyncio.to_thread(container.reload)
-        
-        if container.status != "running":
-            error_logs = await asyncio.to_thread(container.logs)
-            await asyncio.to_thread(container.remove, force=True)
-            raise Exception(f"Container crashed. Logs: {error_logs.decode('utf-8')}")
-            
-        vnc_port = host_port
-        
-        ready = await wait_for_port(vnc_port, timeout=15.0)
-        if not ready:
-            raise Exception("noVNC server failed to start within the timeout period.")
             
         new_session = SessionModel(
             id=session_id, 
             container_id=container.id, 
-            vnc_port=vnc_port
+            vnc_port=host_port
         )
         db.add(new_session)
         await db.commit()
         
-        return SessionCreateResponse(session_id=session_id, vnc_port=vnc_port)
+        return SessionCreateResponse(session_id=session_id, vnc_port=host_port)
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
@@ -121,10 +130,16 @@ async def create_session(db: AsyncSession = Depends(get_db)):
 async def websocket_endpoint(websocket: WebSocket, session_id: str):
     await websocket.accept()
     
+    # Register the active websocket connection
+    if session_id not in active_websockets:
+        active_websockets[session_id] = set()
+    active_websockets[session_id].add(websocket)
+    
     async with AsyncSessionLocal() as db:
         result = await db.execute(select(SessionModel).filter(SessionModel.id == session_id))
         session_data = result.scalars().first()
         if not session_data:
+            active_websockets[session_id].remove(websocket)
             await websocket.close(code=1008)
             return
 
@@ -133,16 +148,27 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
             data = await websocket.receive_json()
             user_msg = data.get("prompt")
             
-            content_list = [{"type": "text", "text": user_msg}]
-            async with AsyncSessionLocal() as db:
-                db.add(MessageModel(session_id=session_id, role="user", content=json.dumps(content_list)))
-                await db.commit()
-            
-            await websocket.send_json({"type": "progress", "content": "Thinking..."})
-            await run_agent_loop(websocket, session_id, session_data.container_id, user_msg)
+            if user_msg:
+                content_list = [{"type": "text", "text": user_msg}]
+                async with AsyncSessionLocal() as db:
+                    db.add(MessageModel(session_id=session_id, role="user", content=json.dumps(content_list)))
+                    await db.commit()
+                
+                await broadcast(session_id, {"type": "progress", "content": "Thinking..."})
+                
+                # Check if an agent is already running for this session
+                if session_id in active_tasks and not active_tasks[session_id].done():
+                    await broadcast(session_id, {"type": "progress", "content": "Agent is already processing a task..."})
+                else:
+                    # Fire and forget the background task
+                    active_tasks[session_id] = asyncio.create_task(
+                        run_agent_loop(session_id, session_data.container_id)
+                    )
             
     except WebSocketDisconnect:
-        pass
+        # Gracefully handle disconnect without killing the background loop
+        if session_id in active_websockets and websocket in active_websockets[session_id]:
+            active_websockets[session_id].remove(websocket)
 
 def _exec_tool_in_container(container_id: str, tool_name: str, tool_input: dict):
     container = docker_client.containers.get(container_id)
@@ -195,16 +221,16 @@ asyncio.run(main())
         workdir="/home/computeruse"
     )
 
-async def run_agent_loop(websocket: WebSocket, session_id: str, container_id: str, prompt: str):
+async def run_agent_loop(session_id: str, container_id: str):
     system_prompt = "You are a computer use agent. You have access to a sandboxed Ubuntu environment."
     
-    async with AsyncSessionLocal() as db:
-        result = await db.execute(select(MessageModel).filter(MessageModel.session_id == session_id).order_by(MessageModel.id))
-        past_messages = result.scalars().all()
-        
-    messages = [{"role": msg.role, "content": json.loads(msg.content)} for msg in past_messages]
-
     try:
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(select(MessageModel).filter(MessageModel.session_id == session_id).order_by(MessageModel.id))
+            past_messages = result.scalars().all()
+            
+        messages = [{"role": msg.role, "content": json.loads(msg.content)} for msg in past_messages]
+
         while True:
             response = await client.beta.messages.create(
                 model="claude-opus-4-8",
@@ -232,7 +258,7 @@ async def run_agent_loop(websocket: WebSocket, session_id: str, container_id: st
 
             for content_block in assistant_content:
                 if content_block.type == "text":
-                    await websocket.send_json({"type": "message", "role": "assistant", "content": content_block.text})
+                    await broadcast(session_id, {"type": "message", "role": "assistant", "content": content_block.text})
                         
                 elif content_block.type == "tool_use":
                     has_tool_use = True
@@ -240,7 +266,7 @@ async def run_agent_loop(websocket: WebSocket, session_id: str, container_id: st
                     tool_input = content_block.input
                     tool_id = content_block.id
                     
-                    await websocket.send_json({"type": "tool_call", "name": tool_name, "input": tool_input})
+                    await broadcast(session_id, {"type": "tool_call", "name": tool_name, "input": tool_input})
                     
                     exit_code, output = await asyncio.to_thread(_exec_tool_in_container, container_id, tool_name, tool_input)
                     
@@ -260,9 +286,9 @@ async def run_agent_loop(websocket: WebSocket, session_id: str, container_id: st
                                 "type": "image", 
                                 "source": {"type": "base64", "media_type": "image/png", "data": result_dict['base64_image']}
                             })
-                            await websocket.send_json({"type": "tool_result", "content": "Screenshot captured."})
+                            await broadcast(session_id, {"type": "tool_result", "content": "Screenshot captured."})
                         else:
-                            await websocket.send_json({"type": "tool_result", "content": result_dict.get('output') or "Completed."})
+                            await broadcast(session_id, {"type": "tool_result", "content": result_dict.get('output') or "Completed."})
                             
                         if not tool_res_content:
                             tool_res_content.append({"type": "text", "text": "Command executed successfully with no output."})
@@ -275,7 +301,7 @@ async def run_agent_loop(websocket: WebSocket, session_id: str, container_id: st
 
                     except Exception as parse_err:
                         err_str = output.decode('utf-8') if output else str(parse_err)
-                        await websocket.send_json({"type": "tool_result", "content": f"Failed execution: {err_str}"})
+                        await broadcast(session_id, {"type": "tool_result", "content": f"Failed execution: {err_str}"})
                         tool_results.append({"type": "tool_result", "tool_use_id": tool_id, "content": [{"type": "text", "text": err_str}]})
 
             if has_tool_use:
@@ -287,4 +313,8 @@ async def run_agent_loop(websocket: WebSocket, session_id: str, container_id: st
                 break
 
     except Exception as e:
-        await websocket.send_json({"type": "progress", "content": f"API Error: {str(e)}"})
+        await broadcast(session_id, {"type": "progress", "content": f"API Error: {str(e)}"})
+    finally:
+        # Clean up the task reference when the agent loop completes
+        if session_id in active_tasks:
+            active_tasks.pop(session_id, None)
